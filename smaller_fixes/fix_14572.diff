@@ -1,0 +1,17 @@
+Index: psi.mi/src/main/java/org/cytoscape/coreplugin/psi_mi/cyto_mapper/MapFromCytoscape.java
+===================================================================
+--- psi.mi/src/main/java/org/cytoscape/coreplugin/psi_mi/cyto_mapper/MapFromCytoscape.java	(revision 14571)
++++ psi.mi/src/main/java/org/cytoscape/coreplugin/psi_mi/cyto_mapper/MapFromCytoscape.java	(revision 14572)
+@@ -160,8 +160,10 @@
+ 			} else if (attributeName.equals(CommonVocab.XREF_DB_ID)) {
+ 				dbIds = attributes.getListAttribute(nodeName, attributeName);
+ 			} else {
+-				String value = attributes.getStringAttribute(nodeName, attributeName);
+-				bag.addAttribute(attributeName, value);
++				if (attributes.getType(attributeName) == CyAttributes.TYPE_STRING){
++					String value = attributes.getStringAttribute(nodeName, attributeName);
++					bag.addAttribute(attributeName, value);
++				} // skip non-string attributes
+ 			}
+ 		}
+ 

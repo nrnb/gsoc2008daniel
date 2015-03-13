@@ -1,0 +1,14 @@
+Index: attribute.browser/src/main/java/cytoscape/browser/ui/CyAttributeBrowserTable.java
+===================================================================
+--- attribute.browser/src/main/java/cytoscape/browser/ui/CyAttributeBrowserTable.java	(revision 14320)
++++ attribute.browser/src/main/java/cytoscape/browser/ui/CyAttributeBrowserTable.java	(revision 14321)
+@@ -205,7 +205,8 @@
+ 
+ 		setKeyStroke();
+ 		Cytoscape.getSwingPropertyChangeSupport().addPropertyChangeListener(this);
+-
++		Cytoscape.getDesktop().getSwingPropertyChangeSupport().addPropertyChangeListener(this);
++		
+ 		setSelectedColor(SELECTED_NODE);
+ 		setSelectedColor(REV_SELECTED_NODE);
+ 		setSelectedColor(SELECTED_EDGE);

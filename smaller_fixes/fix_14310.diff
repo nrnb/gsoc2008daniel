@@ -1,0 +1,21 @@
+Index: editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14309)
++++ editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14310)
+@@ -806,12 +806,11 @@
+ 			}
+ 
+ 			for (int i = 0; i < (nodes.size() - 1); i++) {
+-				NodeView nv = (NodeView) nodes.get(i);
+-				Node firstNode = (Node) nv.getNode();
+-
++				Node firstNode = (Node) nodes.get(i);
++				
+ 				for (int j = i + 1; j < nodes.size(); j++) {
+-					NodeView nv2 = (NodeView) nodes.get(j);
+-					Node secondNode = (Node) nv2.getNode();
++					Node secondNode = (Node) nodes.get(j);
++					
+ 					addEdge(firstNode, secondNode, Semantics.INTERACTION, edgeTypeValue, true,
+ 					        edgeTypeName);
+ 				}

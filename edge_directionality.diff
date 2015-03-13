@@ -1,0 +1,1689 @@
+Index: filters.old/src/main/java/cytoscape/filter/cytoscape/EdgeInteractionFilter.java
+===================================================================
+--- filters.old/src/main/java/cytoscape/filter/cytoscape/EdgeInteractionFilter.java	(revision 14559)
++++ filters.old/src/main/java/cytoscape/filter/cytoscape/EdgeInteractionFilter.java	(revision 14560)
+@@ -198,11 +198,15 @@
+ 		//get the list of all relevant edges
+ 		Node adjacentNode;
+ 
+-		if (target == SOURCE) {
+-			return filter.passesFilter(edge.getSource());
+-		} else if (target == TARGET) {
+-			return filter.passesFilter(edge.getTarget());
+-		} else {
++		if (edge.isDirected()){
++			if (target == SOURCE) {
++				return filter.passesFilter(edge.getSource());
++			} else if (target == TARGET) {
++				return filter.passesFilter(edge.getTarget());
++			} else {
++				return filter.passesFilter(edge.getSource()) || filter.passesFilter(edge.getTarget());
++			}
++		} else { // undirected case, both ends are equivalent:
+ 			return filter.passesFilter(edge.getSource()) || filter.passesFilter(edge.getTarget());
+ 		}
+ 	}
+Index: table.import/src/main/java/cytoscape/io/table/reader/NetworkLineParser.java
+===================================================================
+--- table.import/src/main/java/cytoscape/io/table/reader/NetworkLineParser.java	(revision 14559)
++++ table.import/src/main/java/cytoscape/io/table/reader/NetworkLineParser.java	(revision 14560)
+@@ -58,9 +58,10 @@
+ 	private final NetworkTableMappingParameters nmp;
+ 	private final List<Integer> nodeList;
+ 	private final List<Integer> edgeList;
++	private final boolean directed_edges;
+ 
+ 	/**
+-	 * Creates a new NetworkLineParser object.
++	 * Creates a new NetworkLineParser object, which will create directed edges
+ 	 *
+ 	 * @param nodeList  DOCUMENT ME!
+ 	 * @param edgeList  DOCUMENT ME!
+@@ -68,9 +69,22 @@
+ 	 */
+ 	public NetworkLineParser(List<Integer> nodeList, List<Integer> edgeList,
+ 	                         final NetworkTableMappingParameters nmp) {
++		this(nodeList, edgeList, nmp, true);
++	}
++	/**
++	 * Creates a new NetworkLineParser object, which will create edges of the given directionality
++	 *
++	 * @param nodeList  DOCUMENT ME!
++	 * @param edgeList  DOCUMENT ME!
++	 * @param nmp  DOCUMENT ME!
++	 * @param directed_edges if true, create directed edges, otherwise create undirected ones
++	 */	
++	public NetworkLineParser(List<Integer> nodeList, List<Integer> edgeList,
++            final NetworkTableMappingParameters nmp, final boolean directed_edges) {
+ 		this.nmp = nmp;
+ 		this.nodeList = nodeList;
+ 		this.edgeList = edgeList;
++		this.directed_edges = directed_edges;
+ 	}
+ 
+ 	/**
+@@ -121,7 +135,7 @@
+ 		}
+ 
+ 		final Edge edge;
+-		edge = Cytoscape.getCyEdge(source, target, Semantics.INTERACTION, interaction, true, true);
++		edge = Cytoscape.getCyEdge(source, target, Semantics.INTERACTION, interaction, true, directed_edges);
+ 		edgeList.add(edge.getRootGraphIndex());
+ 		
+ 		return edge;
+Index: table.import/src/main/java/cytoscape/io/table/reader/NetworkTableReader.java
+===================================================================
+--- table.import/src/main/java/cytoscape/io/table/reader/NetworkTableReader.java	(revision 14559)
++++ table.import/src/main/java/cytoscape/io/table/reader/NetworkTableReader.java	(revision 14560)
+@@ -84,6 +84,21 @@
+ 	public NetworkTableReader(final String networkName, final URL sourceURL,
+ 	                          final NetworkTableMappingParameters nmp, final int startLineNumber,
+ 	                          final String commentChar) {
++		this(networkName, sourceURL, nmp, startLineNumber, commentChar, true);
++	}
++	/**
++	 * Creates a new NetworkTableReader object.
++	 *
++	 * @param networkName  DOCUMENT ME!
++	 * @param sourceURL  DOCUMENT ME!
++	 * @param nmp  DOCUMENT ME!
++	 * @param startLineNumber  DOCUMENT ME!
++	 * @param commentChar  DOCUMENT ME!
++	 * @param directed_edges  if true, create directed edges, otherwise create undirected ones
++	 */
++	public NetworkTableReader(final String networkName, final URL sourceURL,
++                final NetworkTableMappingParameters nmp, final int startLineNumber,
++                final String commentChar, final boolean directed_edges) {
+ 		super(networkName);
+ 		this.sourceURL = sourceURL;
+ 		this.nmp = nmp;
+@@ -92,7 +107,7 @@
+ 		this.edgeList = new ArrayList<Integer>();
+ 		this.commentChar = commentChar;
+ 
+-		parser = new NetworkLineParser(nodeList, edgeList, nmp);
++		parser = new NetworkLineParser(nodeList, edgeList, nmp, directed_edges);
+ 	}
+ 
+ 	/**
+Index: table.import/src/main/java/cytoscape/io/table/reader/ExcelNetworkSheetReader.java
+===================================================================
+--- table.import/src/main/java/cytoscape/io/table/reader/ExcelNetworkSheetReader.java	(revision 14559)
++++ table.import/src/main/java/cytoscape/io/table/reader/ExcelNetworkSheetReader.java	(revision 14560)
+@@ -84,7 +84,11 @@
+ 	 */
+ 	public ExcelNetworkSheetReader(String networkName, HSSFSheet sheet,
+ 	                               NetworkTableMappingParameters nmp, final int startLineNumber) {
+-		super(networkName, null, nmp, startLineNumber, null);
++		this(networkName, sheet, nmp, startLineNumber, true);
++	}
++	public ExcelNetworkSheetReader(String networkName, HSSFSheet sheet,
++			NetworkTableMappingParameters nmp, final int startLineNumber, final boolean directed_edges) {
++		super(networkName, null, nmp, startLineNumber, null, directed_edges);
+ 		this.sheet = sheet;
+ 	}
+ 
+Index: table.import/src/main/java/cytoscape/io/table/ui/ImportTextTableDialog.java
+===================================================================
+--- table.import/src/main/java/cytoscape/io/table/ui/ImportTextTableDialog.java	(revision 14559)
++++ table.import/src/main/java/cytoscape/io/table/ui/ImportTextTableDialog.java	(revision 14560)
+@@ -503,6 +503,9 @@
+ 		commentLineTextField.setName("commentLineTextField");
+ 
+ 		titleLabel.setFont(TITLE_FONT.getFont());
++		directednessLabel = new JLabel();
++		createDirectedRadioButton = new javax.swing.JRadioButton("directed");
++		createUnDirectedRadioButton = new javax.swing.JRadioButton("undirected");
+ 
+ 		if (dialogType == NETWORK_IMPORT) {
+ 			previewPanel = new PreviewTablePanel(null, PreviewTablePanel.NETWORK_PREVIEW);
+@@ -1364,7 +1367,7 @@
+ 
+ 		org.jdesktop.layout.GroupLayout networkImportOptionPanelLayout = new org.jdesktop.layout.GroupLayout(networkImportOptionPanel);
+ 		networkImportOptionPanel.setLayout(networkImportOptionPanelLayout);
+-
++		directednessLabel.setText("Create edges:");
+ 		networkImportOptionPanelLayout.setHorizontalGroup(networkImportOptionPanelLayout.createParallelGroup(org.jdesktop.layout.GroupLayout.LEADING)
+ 		                                                                                .add(networkImportOptionPanelLayout.createSequentialGroup()
+ 		                                                                                                                   .addContainerGap(org.jdesktop.layout.GroupLayout.DEFAULT_SIZE,
+@@ -1374,13 +1377,19 @@
+ 		                                                                                                                   .add(defaultInteractionTextField,
+ 		                                                                                                                        org.jdesktop.layout.GroupLayout.PREFERRED_SIZE,
+ 		                                                                                                                        58,
+-		                                                                                                                        org.jdesktop.layout.GroupLayout.PREFERRED_SIZE)));
++		                                                                                                                        org.jdesktop.layout.GroupLayout.PREFERRED_SIZE).addContainerGap(org.jdesktop.layout.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
++		                                                                                                                        .add(directednessLabel)
++		                                                                                                                        .addPreferredGap(org.jdesktop.layout.LayoutStyle.RELATED)
++		                                                                                                                        .add(createDirectedRadioButton)
++		                                                                                                                        .addPreferredGap(org.jdesktop.layout.LayoutStyle.RELATED)
++		                                                                                                                        .add(createUnDirectedRadioButton)));
+ 		networkImportOptionPanelLayout.setVerticalGroup(networkImportOptionPanelLayout.createParallelGroup(org.jdesktop.layout.GroupLayout.LEADING)
+ 		                                                                              .add(defaultInteractionLabel)
+ 		                                                                              .add(defaultInteractionTextField,
+ 		                                                                                   org.jdesktop.layout.GroupLayout.PREFERRED_SIZE,
+ 		                                                                                   org.jdesktop.layout.GroupLayout.DEFAULT_SIZE,
+-		                                                                                   org.jdesktop.layout.GroupLayout.PREFERRED_SIZE));
++		                                                                                   org.jdesktop.layout.GroupLayout.PREFERRED_SIZE).add(directednessLabel)
++		                                                                                   .add(createDirectedRadioButton).add(createUnDirectedRadioButton));
+ 
+ 		org.jdesktop.layout.GroupLayout textImportOptionPanelLayout = new org.jdesktop.layout.GroupLayout(textImportOptionPanel);
+ 		textImportOptionPanel.setLayout(textImportOptionPanelLayout);
+@@ -1990,7 +1999,7 @@
+ 						networkName = wb.getSheetName(0);
+ 
+ 						reader = new ExcelNetworkSheetReader(networkName, sheet, nmp,
+-						                                     startLineNumber);
++						                                     startLineNumber, getDirectednessFromWidget());
+ 					} else {
+ 						// Get name from URL.
+ 						if ((commentChar != null) && (commentChar.length() != 0)
+@@ -2001,7 +2010,7 @@
+ 						final String[] parts = sources[i].toString().split("/");
+ 						networkName = parts[parts.length - 1];
+ 						reader = new NetworkTableReader(networkName, sources[i], nmp,
+-						                                startLineNumber, commentChar);
++						                                startLineNumber, commentChar, getDirectednessFromWidget());
+ 					}
+ 
+ 					loadNetwork(networkName, reader, sources[i], multi);
+@@ -2362,9 +2371,22 @@
+ 		semicolonCheckBox.setEnabled(false);
+ 		otherCheckBox.setEnabled(false);
+ 		otherDelimiterTextField.setEnabled(false);
++		
++		directednessButtonGroup = new javax.swing.ButtonGroup();
++		directednessButtonGroup.add(createDirectedRadioButton);
++		directednessButtonGroup.add(createUnDirectedRadioButton);
++		directednessButtonGroup.setSelected(createDirectedRadioButton.getModel(), true);
+ 	}
++	
++	private boolean getDirectednessFromWidget(){
++		if (createUnDirectedRadioButton.isSelected()){
++			return false;
++		} else {
++			return true;
++		}
++	}
+ 
+-	private void setOntologyInAnnotationComboBox() {
++private void setOntologyInAnnotationComboBox() {
+ 		final DefaultTableModel model = (DefaultTableModel) previewPanel.getPreviewTable().getModel();
+ 
+ 		if ((model != null) && (model.getColumnCount() > 0)) {
+@@ -3550,6 +3572,12 @@
+ 	private AliasTableModel aliasTableModel;
+ 	private JTable aliasTable;
+ 	private JCheckBox importAllCheckBox;
++
++	private JLabel directednessLabel;
++	private javax.swing.ButtonGroup directednessButtonGroup;
++	private javax.swing.JRadioButton createDirectedRadioButton;
++	private javax.swing.JRadioButton createUnDirectedRadioButton;
++
+ }
+ 
+ 
+Index: application/src/test/java/cytoscape/data/GMLTest.java
+===================================================================
+--- application/src/test/java/cytoscape/data/GMLTest.java	(revision 0)
++++ application/src/test/java/cytoscape/data/GMLTest.java	(revision 14560)
+@@ -0,0 +1,130 @@
++/*
++ File: GMLTest.java
++
++ Copyright (c) 2006, The Cytoscape Consortium (www.cytoscape.org)
++
++ The Cytoscape Consortium is:
++ - Institute for Systems Biology
++ - University of California San Diego
++ - Memorial Sloan-Kettering Cancer Center
++ - Institut Pasteur
++ - Agilent Technologies
++
++ This library is free software; you can redistribute it and/or modify it
++ under the terms of the GNU Lesser General Public License as published
++ by the Free Software Foundation; either version 2.1 of the License, or
++ any later version.
++
++ This library is distributed in the hope that it will be useful, but
++ WITHOUT ANY WARRANTY, WITHOUT EVEN THE IMPLIED WARRANTY OF
++ MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.  The software and
++ documentation provided hereunder is on an "as is" basis, and the
++ Institute for Systems Biology and the Whitehead Institute
++ have no obligations to provide maintenance, support,
++ updates, enhancements or modifications.  In no event shall the
++ Institute for Systems Biology and the Whitehead Institute
++ be liable to any party for direct, indirect, special,
++ incidental or consequential damages, including lost profits, arising
++ out of the use of this software and its documentation, even if the
++ Institute for Systems Biology and the Whitehead Institute
++ have been advised of the possibility of such damage.  See
++ the GNU Lesser General Public License for more details.
++
++ You should have received a copy of the GNU Lesser General Public License
++ along with this library; if not, write to the Free Software Foundation,
++ Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ */
++package cytoscape.data;
++
++import java.io.ByteArrayInputStream;
++import java.io.InputStream;
++import java.io.StringWriter;
++
++import org.cytoscape.Edge;
++import org.cytoscape.GraphPerspective;
++import org.cytoscape.Node;
++import org.cytoscape.RootGraph;
++import org.cytoscape.view.GraphView;
++
++import cytoscape.Cytoscape;
++import cytoscape.data.readers.GMLReader;
++import cytoscape.data.readers.GMLWriter;
++import cytoscape.data.readers.GMLParser;
++import junit.framework.TestCase;
++import java.util.List;
++import java.util.Vector;
++
++public class GMLTest extends TestCase {
++	/**
++	 * Tests round-tripping edge directionality:
++	 * exporting to XGMML and then importing from it must preserve edge directionality
++	 */
++	public void testRoundtrip() throws Exception {
++		GraphPerspective network = Cytoscape.createNetwork("directed test network"); 
++		GraphView view = Cytoscape.createNetworkView(network);
++
++		// create nodes
++		Node a = Cytoscape.getCyNode("from", true);
++		Node b = Cytoscape.getCyNode("to", true);
++
++		String attr = Semantics.INTERACTION;
++
++		// create two edges:
++		Edge undirected = Cytoscape.getCyEdge(a, b, attr, "u", true, false);
++		Edge directed = Cytoscape.getCyEdge(a, b, attr, "d", true, true);
++		assertNotNull(undirected);
++		assertNotNull(directed);
++
++		network.addNode(a);
++		network.addNode(b);
++		network.addEdge(undirected);
++		network.addEdge(directed);
++
++		// write network in xgmml format to string
++		StringWriter writer = new StringWriter();
++
++		List list = new Vector();
++
++		GMLWriter gmlWriter = new GMLWriter();
++		gmlWriter.writeGML(network, view, list);
++		GMLParser.printList(list, writer);
++		
++		String output = writer.toString();
++		assertTrue("must have some output", output.length() > 0);
++		System.out.println(output);
++		
++		// remove graph items so that we can check loading; assert that items are really removed
++		RootGraph rootGraph = Cytoscape.getRootGraph();
++		System.out.println("edges:"+Cytoscape.getRootGraph().getEdgeCount());
++
++		rootGraph.removeEdge(directed);
++		rootGraph.removeEdge(undirected);
++		assertNull("item not deleted", Cytoscape.getCyEdge(a, b, attr, "u", false, false));
++		assertNull("item not deleted", Cytoscape.getCyEdge(a, b, attr, "d", false, true));
++
++		rootGraph.removeNode(a);
++		rootGraph.removeNode(b);
++		assertNull("item not deleted", Cytoscape.getCyNode("from", false));
++		assertNull("item not deleted", Cytoscape.getCyNode("to", false));
++
++		// load from the string created above
++		InputStream input = new ByteArrayInputStream(output.getBytes());
++		GMLReader gmlReader = new GMLReader(input, "string");
++		gmlReader.read();
++
++		// check network contents:
++		a = Cytoscape.getCyNode("from", false);
++		assertNotNull("item not reloaded", a);
++		b = Cytoscape.getCyNode("to", false);
++		assertNotNull("item not reloaded", b);
++
++		undirected = Cytoscape.getCyEdge(a, b, attr, "u", false, false);
++		assertNotNull("item not reloaded: undirected", undirected);
++		directed = Cytoscape.getCyEdge(a, b, attr, "d", false, true);
++		assertNotNull("item not reloaded: directed", directed);
++
++		// check directionality:
++		assertTrue("directionality doesn't match (directed)", directed.isDirected());
++		assertFalse("directionality doesn't match (undirected)", undirected.isDirected());
++	}
++}
+Index: application/src/test/java/cytoscape/data/XGMMLTest.java
+===================================================================
+--- application/src/test/java/cytoscape/data/XGMMLTest.java	(revision 0)
++++ application/src/test/java/cytoscape/data/XGMMLTest.java	(revision 14560)
+@@ -0,0 +1,129 @@
++/*
++ File: XGMMLTest.java
++
++ Copyright (c) 2006, The Cytoscape Consortium (www.cytoscape.org)
++
++ The Cytoscape Consortium is:
++ - Institute for Systems Biology
++ - University of California San Diego
++ - Memorial Sloan-Kettering Cancer Center
++ - Institut Pasteur
++ - Agilent Technologies
++
++ This library is free software; you can redistribute it and/or modify it
++ under the terms of the GNU Lesser General Public License as published
++ by the Free Software Foundation; either version 2.1 of the License, or
++ any later version.
++
++ This library is distributed in the hope that it will be useful, but
++ WITHOUT ANY WARRANTY, WITHOUT EVEN THE IMPLIED WARRANTY OF
++ MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.  The software and
++ documentation provided hereunder is on an "as is" basis, and the
++ Institute for Systems Biology and the Whitehead Institute
++ have no obligations to provide maintenance, support,
++ updates, enhancements or modifications.  In no event shall the
++ Institute for Systems Biology and the Whitehead Institute
++ be liable to any party for direct, indirect, special,
++ incidental or consequential damages, including lost profits, arising
++ out of the use of this software and its documentation, even if the
++ Institute for Systems Biology and the Whitehead Institute
++ have been advised of the possibility of such damage.  See
++ the GNU Lesser General Public License for more details.
++
++ You should have received a copy of the GNU Lesser General Public License
++ along with this library; if not, write to the Free Software Foundation,
++ Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
++ */
++package cytoscape.data;
++
++import junit.framework.TestCase;
++import org.cytoscape.GraphPerspective;
++import org.cytoscape.view.GraphView;
++
++import org.cytoscape.Edge;
++import org.cytoscape.Node;
++
++import cytoscape.Cytoscape;
++import cytoscape.data.writers.XGMMLWriter;
++import cytoscape.data.readers.XGMMLReader;
++import cytoscape.data.Semantics;
++import org.cytoscape.RootGraph;
++
++import java.io.StringWriter;
++import java.io.ByteArrayInputStream;
++import java.io.InputStream;
++
++/**
++ * Tests round-tripping edge directionality:
++ * exporting to XGMML and then importing from it must preserve edge directionality
++ */
++public class XGMMLTest extends TestCase {
++	public void testRoundtrip() throws Exception {
++		GraphPerspective network = Cytoscape.createNetwork("directed test network"); 
++		GraphView view = Cytoscape.createNetworkView(network);
++
++		// create nodes
++		Node a = Cytoscape.getCyNode("from", true);
++		Node b = Cytoscape.getCyNode("to", true);
++
++		String attr = Semantics.INTERACTION;
++
++		// create two edges:
++		Edge undirected = Cytoscape.getCyEdge(a, b, attr, "u", true, false);
++		Edge directed = Cytoscape.getCyEdge(a, b, attr, "d", true, true);
++		assertNotNull(undirected);
++		assertNotNull(directed);
++
++		network.addNode(a);
++		network.addNode(b);
++		network.addEdge(undirected);
++		network.addEdge(directed);
++
++		// write network in xgmml format to string
++		StringWriter writer = new StringWriter();
++
++		final XGMMLWriter xgmmlWriter = new XGMMLWriter(network, view);
++
++		xgmmlWriter.write(writer);
++		writer.close();
++
++		String output = writer.toString();
++		assertTrue("must have some output", output.length() > 0);
++
++		// TODO: could check here whether result is valid xml
++
++		// remove graph items so that we can check loading; assert that items are really removed
++		RootGraph rootGraph = Cytoscape.getRootGraph();
++		System.out.println("edges:"+Cytoscape.getRootGraph().getEdgeCount());
++
++		rootGraph.removeEdge(directed);
++		rootGraph.removeEdge(undirected);
++		assertNull("item not deleted", Cytoscape.getCyEdge(a, b, attr, "u", false, false));
++		assertNull("item not deleted", Cytoscape.getCyEdge(a, b, attr, "d", false, true));
++
++		rootGraph.removeNode(a);
++		rootGraph.removeNode(b);
++		assertNull("item not deleted", Cytoscape.getCyNode("from", false));
++		assertNull("item not deleted", Cytoscape.getCyNode("to", false));
++
++		// load from the string created above
++		InputStream input = new ByteArrayInputStream(output.getBytes());
++		XGMMLReader xgmmlReader = new XGMMLReader(input);
++		xgmmlReader.read();
++
++		// check network contents:
++		a = Cytoscape.getCyNode("from", false);
++		assertNotNull("item not reloaded", a);
++		b = Cytoscape.getCyNode("to", false);
++		assertNotNull("item not reloaded", b);
++
++		undirected = Cytoscape.getCyEdge(a, b, attr, "u", false, false);
++		assertNotNull("item not reloaded: undirected", undirected);
++		directed = Cytoscape.getCyEdge(a, b, attr, "d", false, true);
++		assertNotNull("item not reloaded: directed", directed);
++
++		// check directionality:
++		assertTrue("directionality doesn't match (directed)", directed.isDirected());
++		assertFalse("directionality doesn't match (undirected)", undirected.isDirected());
++	}
++}
+Index: application/src/test/java/cytoscape/CytoscapeTest.java
+===================================================================
+--- application/src/test/java/cytoscape/CytoscapeTest.java	(revision 14559)
++++ application/src/test/java/cytoscape/CytoscapeTest.java	(revision 14560)
+@@ -223,8 +223,8 @@
+ 		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "pd", false, true));
+ 		assertNull(Cytoscape.getCyEdge(b, a, attr, "pd", false, true));
+ 
+-		// test undirectedness
+-		assertNotNull(Cytoscape.getCyEdge(b, a, attr, "pd", false, false));
++		// test undirectedness -- directed edge mustn't be returned as undirected edge
++		assertNull(Cytoscape.getCyEdge(b, a, attr, "pd", false, false));
+ 
+ 		// test non-existent edge
+ 		assertNull(Cytoscape.getCyEdge(a, c, attr, "pp", false, true));
+@@ -238,4 +238,105 @@
+ 		// make sure we got the node we created
+ 		assertNotNull(Cytoscape.getCyEdge(a, c, attr, "pd", false, true));
+ 	}
++	/**
++	 *  Check that edge directedness is handled correctly:
++	 *  Creating undirected edges, and value of .isDirected()
++	 */
++	public void testEdgeDirectionality() {
++		// create nodes
++		Node a = Cytoscape.getCyNode("from", true);
++		Node b = Cytoscape.getCyNode("to", true);
++
++		String attr = Semantics.INTERACTION;
++
++		// assert that edge doesn't exist yet
++		assertNull(Cytoscape.getCyEdge(a, b, attr, "u", false, false));
++		assertNull(Cytoscape.getCyEdge(b, a, attr, "u", false, false));
++
++		// create undirected edge 
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "u", true, false) );
++		// check that it was really created
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "u", false, false) );
++		// check that it is visible in reverse direction
++		assertNotNull(Cytoscape.getCyEdge(b, a, attr, "u", false, false) );
++
++		Edge e = Cytoscape.getCyEdge(a, b, attr, "u", false, false);
++		assertFalse("edge created is of correct directionality", e.isDirected());
++		e = Cytoscape.getCyEdge(b, a, attr, "u", false, false);
++		assertFalse("edge created is of correct directionality", e.isDirected());
++
++		// check that for undirected edges, edge in reverse direction is the same
++		Edge e2 = Cytoscape.getCyEdge(b, a, attr, "u", false, false);
++		assertFalse(e2.isDirected());
++		assertTrue(e == e2);
++		assertTrue(e.getIdentifier() == e2.getIdentifier());
++
++		// check isDirected() flag for directed edges:
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "d", true, true) );
++		e = Cytoscape.getCyEdge(a, b, attr, "d", false, true);
++		assertTrue("edge created is of correct directionality", e.isDirected());
++
++		assertNull("directed edge is not visible in reverse dir.", Cytoscape.getCyEdge(b, a, attr, "d", false, true) );
++	}
++
++	/**
++	 * This tests that getCyEdge() will allways return edge with given directionality;
++	 * 
++	 */
++	public void testGetCyEdgeStrictness() {
++		// create nodes
++		Node a = Cytoscape.getCyNode("from", true);
++		Node b = Cytoscape.getCyNode("to", true);
++
++		String attr = Semantics.INTERACTION;
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "u", true, false));
++		
++		// the tests: no directed edge exsists:
++		Edge test_edge = Cytoscape.getCyEdge(a, b, attr, "u", false, true);
++		assertNull("didn't get an edge", test_edge);
++		
++		test_edge = Cytoscape.getCyEdge(b, a, attr, "u", false, true);
++		assertNull("didn't get an edge", test_edge);
++		
++		// undirected edge, in other direction:
++		test_edge = Cytoscape.getCyEdge(b, a, attr, "u", false, false);
++		assertNotNull("got get an edge", test_edge);
++		assertFalse("edge is of correct directionality", test_edge.isDirected());
++	}
++	
++	/**
++	 *  Check that edge directedness is handled correctly:
++	 *  parallel undirected and directed edges must be distinct
++	 */
++	public void testParallelEdgesWithDifferentDirectionality() {
++		// create nodes
++		Node a = Cytoscape.getCyNode("one", true);
++		Node b = Cytoscape.getCyNode("two", true);
++
++		String attr = Semantics.INTERACTION;
++
++		// assert that edge doesn't exist yet
++		assertNull(Cytoscape.getCyEdge(a, b, attr, "u", false, false));
++		assertNull(Cytoscape.getCyEdge(b, a, attr, "u", false, false));
++		assertNull(Cytoscape.getCyEdge(a, b, attr, "u", false, true));
++		assertNull(Cytoscape.getCyEdge(b, a, attr, "u", false, true));
++
++		// create undirected edge:
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "u", true, false) );
++		// create directed edge over it: (same source, target, and interaction)
++		assertNotNull(Cytoscape.getCyEdge(a, b, attr, "u", true, true) );
++		// test directionality:
++		Edge e1 = Cytoscape.getCyEdge(a, b, attr, "u", false, false);
++		assertFalse("edge is created with correct directionality", e1.isDirected());
++
++		Edge e2 = Cytoscape.getCyEdge(a, b, attr, "u", false, true);
++		assertTrue("edge is created with correct directionality", e2.isDirected());
++
++		assertTrue("the two edges are different", e1 != e2);
++		assertTrue("the two edges are different", e1.getIdentifier() != e2.getIdentifier());
++
++		// check existence in reverse direction:
++		assertNotNull(Cytoscape.getCyEdge(b, a, attr, "u", false, false));
++		assertNull(Cytoscape.getCyEdge(b, a, attr, "u", false, true));
++	}
+ }
+Index: application/src/main/java/cytoscape/data/writers/XGMMLWriter.java
+===================================================================
+--- application/src/main/java/cytoscape/data/writers/XGMMLWriter.java	(revision 14559)
++++ application/src/main/java/cytoscape/data/writers/XGMMLWriter.java	(revision 14560)
+@@ -215,6 +215,7 @@
+ 	private String[] networkAttNames = null;
+ 	private GraphPerspective network;
+ 	private GraphView networkView;
++	private boolean isMixed;
+ 	private List <CyGroup>groupList;
+ 	private	HashMap <Node, Node>nodeMap;
+ 	private	HashMap <Edge, Edge>edgeMap;
+@@ -319,13 +320,46 @@
+ 	 * @throws IOException
+ 	 */
+ 	private void writePreamble() throws IOException {
++		String directed = getDirectionality();
+ 		writeElement(XML_STRING+"\n");
+-		writeElement("<graph label=\""+network.getTitle()+"\" "); 
++		writeElement("<graph label=\""+network.getTitle()+"\" directed=\""+directed+"\" "); 
+ 		for (int ns = 0; ns < NAMESPACES.length; ns++)
+ 			writer.write(NAMESPACES[ns]+" ");
+ 		writer.write(">\n");
+ 	}
++    
++	/**
++	 * Check directionality of edges, return directionality string to use in xml
++	 * file as attribute of graph element.
++	 * 
++	 * Set isMixed field true if network is a mixed network (contains directed
++	 * and undirected edges), and false otherwise (if only one type of edges are
++	 * present.)
++	 * 
++	 * @returns flag to use in XGMML file for graph element's 'directed'
++	 *          attribute
++	 */
++	private String getDirectionality() {
++		boolean seen_directed = false;
++		boolean seen_undirected = false;
++		for (Edge edge : network.edgesList()) {
++			if (edge.isDirected())
++				seen_directed = true;
++			else
++				seen_undirected = true;
++		}
++		if (seen_undirected && seen_directed)
++			isMixed = true;
++		else
++			isMixed = false;
+ 
++		if ((!seen_directed) && seen_undirected)
++			return "0"; // only undir. edges
++		else
++			return "1"; // either only directed or mixed. For both cases, use
++						// dir. as default
++	}
++
+ 	/**
+ 	 * Output the network metadata.  This includes our format version and our RDF
+ 	 * data.
+@@ -637,7 +671,10 @@
+ 		if (!nodeMap.containsKey(curEdge.getTarget()) || !nodeMap.containsKey(curEdge.getSource()))
+ 			return;
+ 
+-		writeElement("<edge label="+quote(curEdge.getIdentifier())+" source="+source+" target="+target+">\n");
++		String directedness;
++		if (curEdge.isDirected()){ directedness="\"1\""; } else { directedness="\"0\""; }
++		writeElement("<edge label="+quote(curEdge.getIdentifier())+" source="+source+" target="+target+" cy:directed="+directedness+">\n");
++
+ 		depth++;
+ 
+ 		// Write the edge attributes
+Index: application/src/main/java/cytoscape/data/readers/XGMMLParser.java
+===================================================================
+--- application/src/main/java/cytoscape/data/readers/XGMMLParser.java	(revision 14559)
++++ application/src/main/java/cytoscape/data/readers/XGMMLParser.java	(revision 14560)
+@@ -161,7 +161,12 @@
+ 	private	Node currentNode = null;
+ 	private	Edge currentEdge = null;
+ 	private	Node currentGroupNode = null;
+-
++	
++	/*
++	 * The graph-global directedness, which will be used as default directedness
++	 * of edges. */
++	private boolean currentNetworkisDirected = true; 
++	
+ 	/* Attribute values */
+ 	private ParseState attState = ParseState.NONE;
+ 	private String currentAttributeID = null;
+@@ -677,6 +682,22 @@
+ 			String name = getLabel(atts);
+ 			if (name != null) 
+ 				networkName = name;
++			
++			/* 
++			 * Read and store the graph-global default directedness of edges.
++			 * Note that XGMML gives the default value of this as false (i.e.
++			 * undirected is the default) but because older (pre-cy3.0) cytoscape used
++			 * directed edges by default, and because compatibility with older cytoscape
++			 * versions is more important than compatibility with XGMML standard, using
++			 * directed edges by default makes more sense.
++			 */
++			String directed = atts.getValue("directed");
++			if ("0".equals(directed)){
++				currentNetworkisDirected = false;
++			} else {
++				currentNetworkisDirected = true;
++			}
++						
+ 			return current;
+ 		}
+ 	}
+@@ -821,6 +842,7 @@
+ 			String label = atts.getValue("label");
+ 			String source = atts.getValue("source");
+ 			String target = atts.getValue("target");
++			String isDirected = atts.getValue("cy:directed");
+ 			String sourceAlias = null;
+ 			String targetAlias = null;
+ 			String interaction = "pp";
+@@ -837,12 +859,31 @@
+ 				// System.out.println("Edge label parse: interaction = "+interaction);
+ 			}
+ 
++			boolean directed;
++			if (isDirected == null){
++				// xgmml files made by pre-3.0 cytoscape and strictly
++				// upstream-XGMML conforming files
++				// won't have directedness flag, in which case use the
++				// graph-global directedness setting.
++				//
++				// (org.xml.sax.Attributes.getValue() returns null if attribute does not exists)
++				//
++				// This is the correct way to read the edge-directionality of
++				// non-cytoscape xgmml files as well.
++				directed = currentNetworkisDirected;
++			} else { // parse directedness flag
++				if ("0".equals(isDirected)){
++					directed = false;
++				} else {
++					directed = true;
++				} 
++			}
+ 			if (idMap.containsKey(source) && idMap.containsKey(target)) {
+ 				Node sourceNode = idMap.get(source);
+ 				Node targetNode = idMap.get(target);
+-				currentEdge = createEdge(sourceNode, targetNode, interaction, label);
++				currentEdge = createEdge(sourceNode, targetNode, interaction, label, directed);
+ 			} else if (sourceAlias != null && targetAlias != null) {
+-				currentEdge = createEdge(sourceAlias, targetAlias, interaction, label);
++				currentEdge = createEdge(sourceAlias, targetAlias, interaction, label, directed);
+ 			}
+ 			
+ 			return current;
+@@ -1438,14 +1479,14 @@
+ 	}
+ 
+ 	private Edge createEdge (Node source, Node target, 
+-                             String interaction, String label) throws SAXException {
++                             String interaction, String label, boolean directed) throws SAXException {
+ 		// OK create it
+-		Edge edge = Cytoscape.getCyEdge(source, target, Semantics.INTERACTION, interaction, true, true);
++		Edge edge = Cytoscape.getCyEdge(source, target, Semantics.INTERACTION, interaction, true, directed);
+ 		edgeList.add(edge);
+ 		return edge;
+ 	}
+ 
+-	private Edge createEdge (String source, String target, String interaction, String label) {
++	private Edge createEdge (String source, String target, String interaction, String label, boolean directed) {
+ 		// Make sure the target and destination nodes exist
+ 		if (Cytoscape.getCyNode(source, false) == null) {
+ 			System.out.println("Warning: skipping edge "+label);
+@@ -1457,7 +1498,7 @@
+ 			System.out.println("         node "+target+" doesn't exist");
+ 			return null;
+ 		}
+-		Edge edge =  Cytoscape.getCyEdge(source, label, target, interaction);
++		Edge edge =  Cytoscape.getCyEdge(source, label, target, interaction, directed);
+ 		edgeList.add(edge);
+ 		return edge;
+ 	}
+Index: application/src/main/java/cytoscape/data/readers/GMLReader.java
+===================================================================
+--- application/src/main/java/cytoscape/data/readers/GMLReader.java	(revision 14559)
++++ application/src/main/java/cytoscape/data/readers/GMLReader.java	(revision 14560)
+@@ -124,7 +124,8 @@
+ 	protected static String LABEL = "label";
+ 	protected static String SOURCE = "source";
+ 	protected static String TARGET = "target";
+-
++	protected static String IS_DIRECTED = "directed";
++	
+ 	// The following elements are in "graphics" section of GML
+ 	protected static String X = "x";
+ 	protected static String Y = "y";
+@@ -180,6 +181,7 @@
+ 	List<Integer> nodes;
+ 	List<Integer> sources;
+ 	List<Integer> targets;
++	List<Boolean> directionality_flags;
+ 	Vector<String> node_labels;
+ 	Vector<String> edge_labels;
+ 	Vector<KeyValue> edge_root_index_pairs;
+@@ -432,6 +434,7 @@
+ 		nodes = new ArrayList<Integer>();
+ 		sources = new ArrayList<Integer>();
+ 		targets = new ArrayList<Integer>();
++		directionality_flags = new ArrayList<Boolean>();
+ 		node_labels = new Vector<String>();
+ 		edge_labels = new Vector<String>();
+ 		edge_root_index_pairs = new Vector<KeyValue>();
+@@ -442,6 +445,7 @@
+ 		nodes = null;
+ 		sources = null;
+ 		targets = null;
++		directionality_flags = null;
+ 		node_labels = null;
+ 		edge_labels = null;
+ 		edge_root_index_pairs = null;
+@@ -505,7 +509,8 @@
+ 				String sourceName = (String) node_labels.get(gml_id2order.get(sources.get(idx)));
+ 				String targetName = (String) node_labels.get(gml_id2order.get(targets.get(idx)));
+ 				String edgeName = cytoscape.Cytoscape.createEdgeIdentifier(sourceName, label, targetName);
+-
++				Boolean isDirected = (Boolean) directionality_flags.get(idx);
++				
+ 				int duplicate_count = 1;
+ 
+ 				while (!edgeNameSet.add(edgeName)) {
+@@ -520,7 +525,7 @@
+ 
+ 				Node node_1 = Cytoscape.getCyNode(sourceName);
+ 				Node node_2 = Cytoscape.getCyNode(targetName);
+-				Edge edge = Cytoscape.getCyEdge(node_1, node_2, Semantics.INTERACTION, label, true, true);
++				Edge edge = Cytoscape.getCyEdge(node_1, node_2, Semantics.INTERACTION, label, true, isDirected.booleanValue());
+ 
+ 				// Set correct ID, canonical name and interaction name
+ 				edge.setIdentifier(edgeName);
+@@ -637,6 +642,7 @@
+ 		String label = DEFAULT_EDGE_INTERACTION;
+ 		boolean contains_source = false;
+ 		boolean contains_target = false;
++		Boolean isDirected = Boolean.TRUE; // use pre-3.0 cytoscape's as default
+ 		int source = 0;
+ 		int target = 0;
+ 		KeyValue root_index_pair = null;
+@@ -654,6 +660,12 @@
+ 				label = (String) keyVal.value;
+ 			} else if (keyVal.key.equals(ROOT_INDEX)) {
+ 				root_index_pair = keyVal;
++			} else if (keyVal.key.equals(IS_DIRECTED)) {
++				if (((Integer)keyVal.value) == 1){
++					isDirected = Boolean.FALSE;
++				} else {
++					isDirected = Boolean.TRUE;
++				}
+ 			}
+ 		}
+ 
+@@ -676,7 +688,8 @@
+ 		} else {
+ 			sources.add(source);
+ 			targets.add(target);
+-
++			directionality_flags.add(isDirected);
++			
+ 			edge_labels.add(label);
+ 			edge_root_index_pairs.add(root_index_pair);
+ 		}
+Index: application/src/main/java/cytoscape/data/readers/GMLWriter.java
+===================================================================
+--- application/src/main/java/cytoscape/data/readers/GMLWriter.java	(revision 14559)
++++ application/src/main/java/cytoscape/data/readers/GMLWriter.java	(revision 14560)
+@@ -190,7 +190,15 @@
+ 	 */
+ 	 @SuppressWarnings("unchecked") // for the casts of KeyValue.value
+ 	private void writeGraph(final GraphPerspective network, final GraphView view, final List<KeyValue> oldList) {
+-		for (Iterator<KeyValue> it = oldList.iterator(); it.hasNext();) {
++
++		 
++		 // To enhance compatibility with non-cytoscape GML-conformant
++		 // programs, add directedness flag to graph: allways use 'directed',
++		 // to match pre-3.0 cytoscape's 'edges are directed' behaviour
++		 // TODO: could use undirected here if network is undirected i.e. all edges are undirected.
++		 oldList.add(new KeyValue("directed", Integer.valueOf(0)));
++		 
++		 for (Iterator<KeyValue> it = oldList.iterator(); it.hasNext();) {
+ 			KeyValue keyVal = it.next();
+ 
+ 			/*
+@@ -311,7 +319,8 @@
+ 		KeyValue labelPair = null;
+ 		KeyValue sourcePair = null;
+ 		KeyValue targetPair = null;
+-
++		KeyValue isDirected = null;
++		
+ 		for (Iterator it = oldList.iterator(); it.hasNext();) {
+ 			KeyValue keyVal = (KeyValue) it.next();
+ 
+@@ -325,6 +334,8 @@
+ 				sourcePair = keyVal;
+ 			} else if (keyVal.key.equals(GMLReader.TARGET)) {
+ 				targetPair = keyVal;
++			} else if (keyVal.key.equals(GMLReader.IS_DIRECTED)) {
++				isDirected = keyVal;
+ 			}
+ 		}
+ 
+@@ -374,6 +385,16 @@
+ 		labelPair.value = Cytoscape.getEdgeAttributes()
+ 		                           .getStringAttribute(edge.getIdentifier(), Semantics.INTERACTION);
+ 
++		if (isDirected == null) {
++			isDirected = new KeyValue(GMLReader.IS_DIRECTED, null);
++			oldList.add(isDirected);
++		}
++		if (edge.isDirected()){
++			isDirected.value = Integer.valueOf(0); 
++		} else {
++			isDirected.value = Integer.valueOf(1);
++		}
++
+ 		return true;
+ 	}
+ 
+@@ -454,6 +475,8 @@
+ 			oldList.add(outline_width);
+ 		}
+ 
++		if (nodeView == null) return; // If no view data, simply don't save it (instead of crashing)
++		
+ 		x.value = new Double(nodeView.getXPosition());
+ 		y.value = new Double(nodeView.getYPosition());
+ 		w.value = new Double(nodeView.getWidth());
+@@ -531,7 +554,9 @@
+ 			width = new KeyValue(GMLReader.WIDTH, null);
+ 			oldList.add(width);
+ 		}
+-
++		
++		if (edgeView == null) return; // If no view data, simply don't save it (instead of crashing)
++		
+ 		width.value = new Double(edgeView.getStrokeWidth());
+ 
+ 		if (fill == null) {
+Index: application/src/main/java/cytoscape/data/Semantics.java
+===================================================================
+--- application/src/main/java/cytoscape/data/Semantics.java	(revision 14559)
++++ application/src/main/java/cytoscape/data/Semantics.java	(revision 14560)
+@@ -102,8 +102,12 @@
+ 	 *
+ 	 */
+ 	public static final String INTERACTION = "interaction";
+-
++	
+ 	/**
++	 * Edge attribute, if true, edge is directed, if false it is undirected
++	 */
++	public static final String IS_DIRECTED= "is directed";
++	/**
+ 	 *
+ 	 */
+ 	public static final String MOLECULE_TYPE = "molecule_type";
+Index: application/src/main/java/cytoscape/Cytoscape.java
+===================================================================
+--- application/src/main/java/cytoscape/Cytoscape.java	(revision 14559)
++++ application/src/main/java/cytoscape/Cytoscape.java	(revision 14560)
+@@ -627,12 +627,12 @@
+ 
+ 	/**
+ 	 * Gets the first CyEdge found between the two nodes (direction does not
+-	 * matter) that has the given value for the given attribute. If the edge
+-	 * doesn't exist, then it creates an undirected edge.
+-	 *
+-	 * This method MIGHT be deprecated, or even removed, because Cytoscape
+-	 * shouldn't really be using undirected edges.
+-	 *
++	 * matter, but tries directed edge first) that has the given value for the
++	 * given attribute. If the edge doesn't exist, then it creates a directed
++	 * edge.
++	 * 
++	 * Thus, if create is true, this method will allways return a directed edge.
++	 * 
+ 	 * @param node_1
+ 	 *            one end of the edge
+ 	 * @param node_2
+@@ -651,7 +651,14 @@
+ 	 */
+ 	public static Edge getCyEdge(Node node_1, Node node_2, String attribute,
+ 	                               Object attribute_value, boolean create) {
+-		return getCyEdge(node_1, node_2, attribute, attribute_value, create, false);
++		if (!create){
++			Edge e = getCyEdge(node_1, node_2, attribute, attribute_value, create, true);
++			if (e == null){
++				return getCyEdge(node_1, node_2, attribute, attribute_value, create, false);
++			} else { return e;}
++		} else {
++			return getCyEdge(node_1, node_2, attribute, attribute_value, create, true);
++		}
+ 	}
+ 
+ 	/**
+@@ -697,14 +704,16 @@
+ 					Node edgeSource = (Node) edge.getSource();
+ 
+ 					if ((edgeTarget.getRootGraphIndex() == target.getRootGraphIndex())
+-					    && (edgeSource.getRootGraphIndex() == source.getRootGraphIndex())) {
++					    && (edgeSource.getRootGraphIndex() == source.getRootGraphIndex())
++					    && (edge.isDirected() == directed)) {
+ 						return edge;
+ 					}
+ 
+ 					if (!directed) {
+ 						// note that source and target are switched
+ 						if ((edgeTarget.getRootGraphIndex() == source.getRootGraphIndex())
+-						    && (edgeSource.getRootGraphIndex() == target.getRootGraphIndex())) {
++						    && (edgeSource.getRootGraphIndex() == target.getRootGraphIndex())
++						    && (edge.isDirected() == directed)) {
+ 							return edge;
+ 						}
+ 					}
+@@ -716,7 +725,7 @@
+ 			// create the edge
+ 			Edge edge = (Edge) Cytoscape.getRootGraph()
+ 			                                .getEdge(Cytoscape.getRootGraph()
+-			                                                  .createEdge(source, target));
++			                                                  .createEdge(source, target, directed));
+ 
+ 			// create the edge id
+ 			String edge_name = Cytoscape.createEdgeIdentifier(source.getIdentifier(),
+@@ -725,6 +734,7 @@
+ 			edge.setIdentifier(edge_name);
+ 
+ 			edgeAttributes.setAttribute(edge_name, Semantics.INTERACTION, (String) attribute_value);
++			edgeAttributes.setAttribute(edge_name, Semantics.IS_DIRECTED, new Boolean(directed));
+ 			edgeAttributes.setAttribute(edge_name, Semantics.CANONICAL_NAME, edge_name);
+ 
+ 			return edge;
+@@ -734,7 +744,7 @@
+ 	}
+ 
+ 	/**
+-	 * Returns and edge if it exists, otherwise creates a directed edge.
++	 * Returns a directed edge if it exists, otherwise creates a directed edge.
+ 	 *
+ 	 * @param source_alias
+ 	 *            an alias of a node
+@@ -745,7 +755,24 @@
+ 	 * @return will always return an edge
+ 	 */
+ 	public static Edge getCyEdge(String source_alias, String edge_name, String target_alias,
+-	                               String interaction_type) {
++            String interaction_type) {
++			return getCyEdge(source_alias, edge_name, target_alias, interaction_type, true);
++	}
++	/**
++	 * Returns an edge if it exists, otherwise creates an edge with given directionality.
++	 *
++	 * @param source_alias
++	 *            an alias of a node
++	 * @param edge_name
++	 *            the name of the node
++	 * @param target_alias
++	 *            an alias of a node
++	 * @param directed
++	 * 			directedness of edge
++	 * @return will always return an edge
++	 */	
++	public static Edge getCyEdge(String source_alias, String edge_name, String target_alias,
++	                               String interaction_type, boolean directed) {
+ 
+ 		Edge edge = Cytoscape.getRootGraph().getEdge(edge_name);
+ 
+@@ -757,7 +784,7 @@
+ 		Node source = getCyNode(source_alias);
+ 		Node target = getCyNode(target_alias);
+ 
+-		return getCyEdge(source, target, Semantics.INTERACTION, interaction_type, true, true);
++		return getCyEdge(source, target, Semantics.INTERACTION, interaction_type, true, directed);
+ 	}
+ 
+ 	private static Object private_getEdgeAttributeValue(Edge edge, String attribute) {
+
+Property changes on: application
+___________________________________________________________________
+Added: svn:ignore
+   + 
+
+
+Index: filters/src/test/java/cytoscape/filters/TopologyFilterTest.java
+===================================================================
+--- filters/src/test/java/cytoscape/filters/TopologyFilterTest.java	(revision 14559)
++++ filters/src/test/java/cytoscape/filters/TopologyFilterTest.java	(revision 14560)
+@@ -27,11 +27,12 @@
+ 		topoFilter.setDistance(1);
+ 		topoFilter.apply();
+ 
+-		BitSet expectedNodeBitSet = new BitSet(4);
++		BitSet expectedNodeBitSet = new BitSet(5);
+ 		expectedNodeBitSet.set(0, true);
+ 		expectedNodeBitSet.set(1, true);
+ 		expectedNodeBitSet.set(2, true);
+ 		expectedNodeBitSet.set(3, true);
++		expectedNodeBitSet.set(4, true);
+ 		
+ 		assertEquals(expectedNodeBitSet.toString(), topoFilter.getNodeBits().toString());
+ 		topoFilter.setMinNeighbors(3);		
+@@ -41,6 +42,8 @@
+ 		expectedNodeBitSet.set(1, false);
+ 		expectedNodeBitSet.set(2, false);
+ 		expectedNodeBitSet.set(3, true);
++		expectedNodeBitSet.set(4, false);
++		
+ 		assertEquals(expectedNodeBitSet.toString(), topoFilter.getNodeBits().toString());		
+ 	}
+ 	
+Index: filters/src/test/java/cytoscape/filters/FilterTest.java
+===================================================================
+--- filters/src/test/java/cytoscape/filters/FilterTest.java	(revision 14559)
++++ filters/src/test/java/cytoscape/filters/FilterTest.java	(revision 14560)
+@@ -16,19 +16,28 @@
+ 		Node node1 = Cytoscape.getCyNode("rainbow", true);
+ 		Node node2 = Cytoscape.getCyNode("rabbit", true);
+ 		Node node3 = Cytoscape.getCyNode("yellow", true);
+-
++		Node node4 = Cytoscape.getCyNode("undir_test_node", true);
++		
++		// adding node4 last, so that it will be in last place in cyNetwork.nodesList()
++		// and thus not affect those tests which don't involve edge directionality
++		cyNetwork.addNode(node4); 
+ 		cyNetwork.addNode(node0);
+ 		cyNetwork.addNode(node1);
+ 		cyNetwork.addNode(node2);
+ 		cyNetwork.addNode(node3);
+ 		
++		
+ 		Edge edge0 = Cytoscape.getCyEdge(node0, node1, Semantics.INTERACTION, "pp", true);
+ 		Edge edge1 = Cytoscape.getCyEdge(node0, node2, Semantics.INTERACTION, "pp", true);
+ 		Edge edge2 = Cytoscape.getCyEdge(node0, node3, Semantics.INTERACTION, "pp", true);
++		Edge edge3 = Cytoscape.getCyEdge(node0, node4, Semantics.INTERACTION, "pp", true, false);
++		
++		cyNetwork.addEdge(edge3);
+ 		cyNetwork.addEdge(edge0);
+ 		cyNetwork.addEdge(edge1);
+ 		cyNetwork.addEdge(edge2);
+-
++		
++		
+ 		//  Create Sample String Attributes
+ 		CyAttributes nodeAttributes = Cytoscape.getNodeAttributes();
+ 		nodeAttributes.setAttribute(node0.getIdentifier(), LOCATION, CYTOPLASM);
+@@ -41,24 +50,40 @@
+ 		nodeAttributes.setAttribute(node1.getIdentifier(), RANK, 3);
+ 		nodeAttributes.setAttribute(node2.getIdentifier(), RANK, 1);
+ 		nodeAttributes.setAttribute(node3.getIdentifier(), RANK, 2);
++		nodeAttributes.setAttribute(node4.getIdentifier(), RANK, 5);
+ 
++		
+ 		//  Create Sample Double Attributes
+ 		nodeAttributes.setAttribute(node0.getIdentifier(), SCORE, 45.2);
+ 		nodeAttributes.setAttribute(node1.getIdentifier(), SCORE, 3.211);
+ 		nodeAttributes.setAttribute(node2.getIdentifier(), SCORE, 22.2);
+ 		nodeAttributes.setAttribute(node3.getIdentifier(), SCORE, 2.1);
++		nodeAttributes.setAttribute(node4.getIdentifier(), SCORE, 100.0);
+ 
+ 		//  Create Sample String Attributes
+ 		CyAttributes edgeAttributes = Cytoscape.getEdgeAttributes();
+ 		edgeAttributes.setAttribute(edge0.getIdentifier(), PMID, "12345");
+ 		edgeAttributes.setAttribute(edge1.getIdentifier(), PMID, "12345");
+ 		edgeAttributes.setAttribute(edge2.getIdentifier(), PMID, "12666");
++		edgeAttributes.setAttribute(edge3.getIdentifier(), PMID, "12345");
++		
+ 	}
+     
+ 	public void testDumb() {
+ 		//No test for FilterTest. It holds test data only!
+ 		// Without this dumb test-case, a warning message will be printed out
+ 	}
++	
++	/**
++	 * A verbose version to help debugging: print expected and actual results if assertion fails
++	 */
++	public static void assertEquals(String string1, String string2){
++		if (! string1.equals(string2)){
++			System.out.println("assertion Error: expected: "+string1);
++			System.out.println("assertion Error:      got: "+string2);
++			TestCase.assertEquals(string1, string2);
++		}
++	}
+ 
+ 	protected static final String LOCATION = "location";
+ 	protected static final String NUCLEUS = "nucleus";
+Index: filters/src/test/java/cytoscape/filters/NumericFilterTest.java
+===================================================================
+--- filters/src/test/java/cytoscape/filters/NumericFilterTest.java	(revision 14559)
++++ filters/src/test/java/cytoscape/filters/NumericFilterTest.java	(revision 14560)
+@@ -48,19 +48,19 @@
+ 		theDoubleFilter.setNetwork(cyNetwork);
+ 
+ 		//Expected values
+-		expectedBitSet1 = new BitSet(4);
++		expectedBitSet1 = new BitSet(5);
+ 		expectedBitSet1.set(0, true);
+ 		expectedBitSet1.set(2, true);
+ 
+-		expectedBitSet2 = new BitSet(4);
++		expectedBitSet2 = new BitSet(5);
+ 		expectedBitSet2.set(1, true);
+ 		expectedBitSet2.set(2, true);
+ 
+ 		expectedBitSet1_not = (BitSet) expectedBitSet1.clone();
+-		expectedBitSet1_not.flip(0,4);
++		expectedBitSet1_not.flip(0,5);
+ 
+ 		expectedBitSet2_not = (BitSet) expectedBitSet2.clone();
+-		expectedBitSet2_not.flip(0,4);
++		expectedBitSet2_not.flip(0,5);
+ 		
+ 	}
+ 	/**
+Index: filters/src/test/java/cytoscape/filters/EdgeInteractionFilterTest.java
+===================================================================
+--- filters/src/test/java/cytoscape/filters/EdgeInteractionFilterTest.java	(revision 14559)
++++ filters/src/test/java/cytoscape/filters/EdgeInteractionFilterTest.java	(revision 14560)
+@@ -40,10 +40,11 @@
+ 		
+ 		edgeInteractionFilter.apply();
+ 		
+-		BitSet expectedEdgeBitSet = new BitSet(3);
++		BitSet expectedEdgeBitSet = new BitSet(4);
+ 		expectedEdgeBitSet.set(0, true);
+ 		expectedEdgeBitSet.set(1, true);
+ 		expectedEdgeBitSet.set(2, true);
++		expectedEdgeBitSet.set(3, true);
+ 		
+ 		assertEquals(expectedEdgeBitSet.toString(), edgeInteractionFilter.getEdgeBits().toString());
+ 	}
+@@ -62,8 +63,9 @@
+ 		
+ 		edgeInteractionFilter.apply();
+ 
+-		BitSet expectedEdgeBitSet = new BitSet(3);
++		BitSet expectedEdgeBitSet = new BitSet(4);
+ 		expectedEdgeBitSet.set(2, true);
++		expectedEdgeBitSet.set(3, true);
+ 		
+ 		assertEquals(expectedEdgeBitSet.toString(), edgeInteractionFilter.getEdgeBits().toString());
+ 	}
+@@ -82,10 +84,11 @@
+ 		
+ 		edgeInteractionFilter.apply();
+ 
+-		BitSet expectedEdgeBitSet = new BitSet(3);
++		BitSet expectedEdgeBitSet = new BitSet(4);
+ 		expectedEdgeBitSet.set(0, true);
+ 		expectedEdgeBitSet.set(1, true);
+ 		expectedEdgeBitSet.set(2, true);
++		expectedEdgeBitSet.set(3, true);
+ 		
+ 		assertEquals(expectedEdgeBitSet.toString(), edgeInteractionFilter.getEdgeBits().toString());
+ 	}
+@@ -106,10 +109,10 @@
+ 		
+ 		edgeInteractionFilter.apply();
+ 
+-		BitSet expectedEdgeBitSet = new BitSet(3);
++		BitSet expectedEdgeBitSet = new BitSet(4);
+ 		expectedEdgeBitSet.set(0, true);
+ 		expectedEdgeBitSet.set(1, true);
+-		
++				
+ 		assertEquals(expectedEdgeBitSet.toString(), edgeInteractionFilter.getEdgeBits().toString());
+ 	}
+ 
+Index: filters/src/test/java/cytoscape/filters/NodeInteractionFilterTest.java
+===================================================================
+--- filters/src/test/java/cytoscape/filters/NodeInteractionFilterTest.java	(revision 14559)
++++ filters/src/test/java/cytoscape/filters/NodeInteractionFilterTest.java	(revision 14560)
+@@ -40,8 +40,9 @@
+ 		
+ 		nodeInteractionFilter.apply();
+ 
+-		BitSet expectedNodeBitSet = new BitSet(4);
++		BitSet expectedNodeBitSet = new BitSet(5);
+ 		expectedNodeBitSet.set(3, true);
++		expectedNodeBitSet.set(4, true);
+ 		
+ 		assertEquals(expectedNodeBitSet.toString(), nodeInteractionFilter.getNodeBits().toString());
+ 	}
+@@ -60,9 +61,11 @@
+ 		
+ 		nodeInteractionFilter.apply();
+ 
+-		BitSet expectedNodeBitSet = new BitSet(4);
++		BitSet expectedNodeBitSet = new BitSet(5);
+ 		expectedNodeBitSet.set(1, true);
+ 		expectedNodeBitSet.set(2, true);
++		expectedNodeBitSet.set(3, true);
++		expectedNodeBitSet.set(4, true);
+ 		
+ 		assertEquals(expectedNodeBitSet.toString(), nodeInteractionFilter.getNodeBits().toString());
+ 	}
+@@ -82,9 +85,8 @@
+ 		
+ 		nodeInteractionFilter.apply();
+ 
+-		BitSet expectedNodeBitSet = new BitSet(4);
++		BitSet expectedNodeBitSet = new BitSet(5);
+ 		expectedNodeBitSet.set(0, true);
+-		expectedNodeBitSet.set(3, true);
+ 		
+ 		assertEquals(expectedNodeBitSet.toString(), nodeInteractionFilter.getNodeBits().toString());
+ 	}
+@@ -108,6 +110,7 @@
+ 		expectedNodeBitSet.set(1, true);
+ 		expectedNodeBitSet.set(2, true);
+ 		expectedNodeBitSet.set(3, true);
++		expectedNodeBitSet.set(4, true);
+ 		
+ 		assertEquals(expectedNodeBitSet.toString(), nodeInteractionFilter.getNodeBits().toString());
+ 	}
+Index: filters/src/main/java/cytoscape/filters/EdgeInteractionFilter.java
+===================================================================
+--- filters/src/main/java/cytoscape/filters/EdgeInteractionFilter.java	(revision 14559)
++++ filters/src/main/java/cytoscape/filters/EdgeInteractionFilter.java	(revision 14560)
+@@ -115,18 +115,25 @@
+ 		// Get the list of relevant nodes for this edge
+ 		List<Node> adjacentNodes = new ArrayList<Node>();
+ 		
+-		if (nodeType == NODE_SOURCE) {
+-			adjacentNodes.add(pEdge.getSource());
++		if (pEdge.isDirected()){
++			if (nodeType == NODE_SOURCE) {
++				adjacentNodes.add(pEdge.getSource());
++			} else if (nodeType == NODE_TARGET) {
++				adjacentNodes.add(pEdge.getTarget());
++			} else if (nodeType == NODE_SOURCE_TARGET) {
++				adjacentNodes.add(pEdge.getSource());
++				adjacentNodes.add(pEdge.getTarget());
++			} else { //nodeType == NODE_UNDEFINED --Neither source or target is selected
++				return false;
++			}
++		} else { // undirected edge, force nodeType to be NODE_SOURCE_TARGET or NODE_UNDEFINED
++			if (nodeType == NODE_UNDEFINED) {
++				return false;
++			} else {
++				adjacentNodes.add(pEdge.getSource());
++				adjacentNodes.add(pEdge.getTarget());
++			}
+ 		}
+-		else if (nodeType == NODE_TARGET) {
+-			adjacentNodes.add(pEdge.getTarget());
+-		}
+-		else if (nodeType == NODE_SOURCE_TARGET) {
+-			adjacentNodes.add(pEdge.getSource());
+-			adjacentNodes.add(pEdge.getTarget());		}
+-		else { //nodeType == NODE_UNDEFINED --Neither source or target is selected
+-			return false;
+-		}
+ 						
+ 		int nodeIndex = -1;
+ 		for (int i=0; i < adjacentNodes.size(); i++) {
+Index: editor/src/main/java/cytoscape/editor/CytoscapeEditor.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/CytoscapeEditor.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/CytoscapeEditor.java	(revision 14560)
+@@ -217,6 +217,8 @@
+ 	 * @param create
+ 	 *            if true, then create an edge if one does not already exist.
+ 	 *            Otherwise, return the edge if it already exists.
++	 * @param directed
++	 *            if true, create directed edge, if false, create undirected one.
+ 	 * @param edgeType
+ 	 *            a value for the "EdgeType" attribute assigned to the edge.
+ 	 *            This can be used in conjunction with the Visual Mapper.
+@@ -224,7 +226,7 @@
+ 	 *
+ 	 */
+ 	public Edge addEdge(Node node_1, Node node_2, String attribute, Object attribute_value,
+-	                      boolean create, String edgeType);
++	                      boolean create, boolean directed, String edgeType);
+ 
+ 	/**
+ 	 *
+@@ -233,7 +235,7 @@
+ 	 * Cytoscape model. Thus, it provides an insulating level of abstraction
+ 	 * between the CytoscapeEditor and the Cytoscape implementation, allowing
+ 	 * for portability and extensibility of the editor. This version always
+-	 * creates an edge, whether or not one already exists.
++	 * creates a directed edge, whether or not one already exists.
+ 	 *
+ 	 * @param node_1
+ 	 *            Node at one end of the edge
+@@ -256,7 +258,7 @@
+ 	 * Cytoscape model. Thus, it provides an insulating level of abstraction
+ 	 * between the CytoscapeEditor and the Cytoscape implementation, allowing
+ 	 * for portability and extensibility of the editor. This version always
+-	 * creates an edge, whether or not one already exists.
++	 * creates a directed edge, whether or not one already exists.
+ 	 *
+ 	 * @param node_1
+ 	 *            Node at one end of the edge
+@@ -284,6 +286,8 @@
+ 	 * between the CytoscapeEditor and the Cytoscape implementation, allowing
+ 	 * for portability and extensibility of the editor.
+ 	 *
++	 * Allways assumes edges are directed.
++	 *
+ 	 * @param node_1
+ 	 *            Node at one end of the edge
+ 	 * @param node_2
+Index: editor/src/main/java/cytoscape/editor/event/BasicNetworkEditEventHandler.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/event/BasicNetworkEditEventHandler.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/event/BasicNetworkEditEventHandler.java	(revision 14560)
+@@ -356,14 +356,15 @@
+ 		Node source_node = source.getNode();
+ 		Node target_node = target.getNode();
+ 
++		String edgeAttrValue =  BasicNetworkEditEventHandler.DEFAULT_EDGE;
++		if (this.getEdgeAttributeValue() != null){ edgeAttrValue = this.getEdgeAttributeValue();}
++		
++		boolean directed = CytoscapeEditorManager.EdgeTypeIsDirected(edgeAttrValue);
++		
+ 		Edge myEdge = _caller.addEdge(source_node, target_node,
+-		                                cytoscape.data.Semantics.INTERACTION,
+-		                                (this.getEdgeAttributeValue() != null)
+-		                                ? this.getEdgeAttributeValue()
+-		                                : BasicNetworkEditEventHandler.DEFAULT_EDGE, true,
+-		                                (this.getEdgeAttributeValue() != null)
+-		                                ? this.getEdgeAttributeValue()
+-		                                : BasicNetworkEditEventHandler.DEFAULT_EDGE);
++		                              cytoscape.data.Semantics.INTERACTION,
++		                              edgeAttrValue, true, directed,
++		                              edgeAttrValue);
+ 		completeFinishEdge();
+ 
+ 		return myEdge;
+Index: editor/src/main/java/cytoscape/editor/impl/ShapePalette.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/impl/ShapePalette.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/impl/ShapePalette.java	(revision 14560)
+@@ -140,25 +140,34 @@
+ 	* @param attributeValue value for the attribute assigned to the shape, for example a "NodeType" of "protein"
+ 	* @param img the icon for the shape
+ 	* @param name the title of the shape
+-	 * @param cursorSetter a possibly null DragSourceContextCursorSetter used to specify
+-	 *                     the cursor so show when dragging over the current network view.
++	* @param cursorSetter a possibly null DragSourceContextCursorSetter used to specify
++	*                     the cursor so show when dragging over the current network view.
++	*                     
++	* @param directed_edge if true, the edge type declared with this call is directed
++	* 		(i.e. edges of this type will be created as directed), if false, undirected.
++	* 		
++	*  		used only for when attributeName is EDGE_TYPE, ignored for nodes 
+ 	*/
+ 
+ 	// MLC 12/16/06 BEGIN:
+ 	public void addShape(String attributeName, String attributeValue, Icon img, String name,
+-	                     DragSourceContextCursorSetter cursorSetter) {
++	                     DragSourceContextCursorSetter cursorSetter, boolean directed_edge) {
+ 		BasicCytoShapeEntity cytoShape = new BasicCytoShapeEntity(attributeName, attributeValue,
+ 		                                                          img, name, cursorSetter);
+ 		cytoShape.setTransferHandler(new BasicCytoShapeTransferHandler(cytoShape, null));
+ 		_shapeMap.put(cytoShape.getTitle(), cytoShape);
+ 
+ 		if (attributeName.equals(CytoscapeEditorManager.EDGE_TYPE)) {
+-			CytoscapeEditorManager.addEdgeTypeForVisualStyle(Cytoscape.getVisualMappingManager().getVisualStyleForView(Cytoscape.getCurrentNetworkView()),attributeValue);
++			CytoscapeEditorManager.addEdgeTypeForVisualStyle(Cytoscape.getVisualMappingManager().getVisualStyleForView(Cytoscape.getCurrentNetworkView()),attributeValue, directed_edge);
++			
+ 		}
+ 
+ 		_shapePane.add(cytoShape);
+ 	}
+-
++	public void addShape(String attributeName, String attributeValue, Icon img, String name,
++            DragSourceContextCursorSetter cursorSetter){
++				addShape(attributeName, attributeValue, img, name, cursorSetter, true);
++	}
+ 	/**
+ 	 * show the palette in the WEST cytopanel
+ 	 *
+Index: editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14560)
+@@ -444,21 +444,23 @@
+ 	 * @param edgeType
+ 	 *            a value for the "EdgeType" attribute assigned to the edge.
+ 	 *            This can be used in conjunction with the Visual Mapper.
++	 * @param directed
++	 *            if true, create directed edge, if false, create undirected one.
+ 	 * @return the Edge that has either been reused or created
+ 	 *
+ 	 */
+ 	public Edge addEdge(Node node_1, Node node_2, String attribute, Object attribute_value,
+-	                      boolean create, String edgeType) {
++	                      boolean create, boolean directed, String edgeType) {
+ 		// first see if edge already exists. If it does, then
+ 		// there is no need to set up undoable edit or fire event
+ 		Edge edge;
+ 		boolean uniqueEdge = true;
+-		edge = Cytoscape.getCyEdge(node_1, node_2, attribute, attribute_value, false, true); // edge is directed
++		edge = Cytoscape.getCyEdge(node_1, node_2, attribute, attribute_value, false, directed);
+ 
+ 		if (edge != null) {
+ 			uniqueEdge = false;
+ 		} else {
+-			edge = Cytoscape.getCyEdge(node_1, node_2, attribute, attribute_value, create, true); // edge is directed
++			edge = Cytoscape.getCyEdge(node_1, node_2, attribute, attribute_value, create, directed);
+ 		}
+ 
+ 		if (edge != null) {
+@@ -498,7 +500,7 @@
+ 	 * Cytoscape model. Thus, it provides an insulating level of abstraction
+ 	 * between the CytoscapeEditor and the Cytoscape implementation, allowing
+ 	 * for portability and extensibility of the editor. This version always
+-	 * creates an edge, whether or not one already exists.
++	 * creates a directed edge, whether or not one already exists.
+ 	 *
+ 	 * @param node_1
+ 	 *            Node at one end of the edge
+@@ -513,7 +515,7 @@
+ 	 *
+ 	 */
+ 	public Edge addEdge(Node node_1, Node node_2, String attribute, Object attribute_value) {
+-		return addEdge(node_1, node_2, attribute, attribute_value, true, null);
++		return addEdge(node_1, node_2, attribute, attribute_value, true, true, null);
+ 	}
+ 
+ 	/**
+@@ -523,7 +525,7 @@
+ 	 * Cytoscape model. Thus, it provides an insulating level of abstraction
+ 	 * between the CytoscapeEditor and the Cytoscape implementation, allowing
+ 	 * for portability and extensibility of the editor. This version always
+-	 * creates an edge, whether or not one already exists.
++	 * creates a directed edge, whether or not one already exists.
+ 	 *
+ 	 * @param node_1
+ 	 *            Node at one end of the edge
+@@ -542,7 +544,7 @@
+ 	 */
+ 	public Edge addEdge(Node node_1, Node node_2, String attribute, Object attribute_value,
+ 	                      String edgeType) {
+-		return addEdge(node_1, node_2, attribute, attribute_value, true, edgeType);
++		return addEdge(node_1, node_2, attribute, attribute_value, true, true, edgeType);
+ 	}
+ 
+ 	/**
+@@ -570,7 +572,7 @@
+ 	 */
+ 	public Edge addEdge(Node node_1, Node node_2, String attribute, Object attribute_value,
+ 	                      boolean create) {
+-		return addEdge(node_1, node_2, attribute, attribute_value, create, null);
++		return addEdge(node_1, node_2, attribute, attribute_value, create, true, null);
+ 	}
+ 
+ 	/**
+@@ -808,14 +810,14 @@
+ 					}
+ 				}
+ 			}
+-
++			boolean directed = CytoscapeEditorManager.EdgeTypeIsDirected(edgeTypeName);
++			
+ 			for (int i = 0; i < (nodes.size() - 1); i++) {
+ 				Node firstNode = (Node) nodes.get(i);
+ 				
+ 				for (int j = i + 1; j < nodes.size(); j++) {
+ 					Node secondNode = (Node) nodes.get(j);
+-					
+-					addEdge(firstNode, secondNode, Semantics.INTERACTION, edgeTypeValue, true,
++					addEdge(firstNode, secondNode, Semantics.INTERACTION, edgeTypeValue, true, directed,
+ 					        edgeTypeName);
+ 				}
+ 			}
+Index: editor/src/main/java/cytoscape/editor/editors/DefaultCytoscapeEditor.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/editors/DefaultCytoscapeEditor.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/editors/DefaultCytoscapeEditor.java	(revision 14560)
+@@ -162,8 +162,11 @@
+ 
+ 		if (!spEntries.hasNext()) {
+ 			shapePalette.addShape(controllingAttribute, "DirectedEdge",
+-			                      new CytoShapeIcon(ArrowShape.NONE), "Directed Edge",
+-			_edgeCursorSetter);
++					new CytoShapeIcon(ArrowShape.DELTA), "Directed Edge",
++					_edgeCursorSetter, true);
++			shapePalette.addShape(controllingAttribute, "UndirectedEdge",
++					new CytoShapeIcon(ArrowShape.NONE), "Undirected Edge",
++					_edgeCursorSetter, false);
+ 		} else {
+ 			while (spEntries.hasNext()) {
+ 				ShapePaletteInfo spi = spEntries.next();
+Index: editor/src/main/java/cytoscape/editor/CytoscapeEditorManager.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/CytoscapeEditorManager.java	(revision 14559)
++++ editor/src/main/java/cytoscape/editor/CytoscapeEditorManager.java	(revision 14560)
+@@ -193,9 +193,9 @@
+ 	 * associates a visual style with its set of EDGE_TYPEs
+ 	 */
+ 	private static HashMap<VisualStyle, List<String>> visualStyleEdgeTypesMap = new HashMap<VisualStyle, List<String>>();
++	/* Stores whether given EDGE_TYPE is directed (true meaning directed)*/ 
++	private static HashMap<String, Boolean> edgeTypeIsDirectedMap = new HashMap<String, Boolean>();
+ 
+-	// protected static HashMap visualStyleEdgeTypesMap = new HashMap();
+-
+ 	// map String names of visual styles to a list of the names of editors
+ 	// that use that style:
+ 	private static Map<String, String> visualStyleNameToEditorNameMap = new HashMap<String, String>();
+@@ -705,9 +705,9 @@
+ 	 * @param vizStyle
+ 	 * @param edgeType
+ 	 */
+-	public static void addEdgeTypeForVisualStyle(VisualStyle vizStyle, String edgeType) {
++	public static void addEdgeTypeForVisualStyle(VisualStyle vizStyle, String edgeType, boolean directed_edge) {
+ 		List<String> edgeTypes = visualStyleEdgeTypesMap.get(vizStyle);
+-
++				
+ 		if (edgeTypes == null) {
+ 			edgeTypes = new ArrayList<String>();
+ 		}
+@@ -717,6 +717,7 @@
+ 		}
+ 
+ 		visualStyleEdgeTypesMap.put(vizStyle, edgeTypes);
++		edgeTypeIsDirectedMap.put(edgeType, new Boolean(directed_edge));
+ 	}
+ 
+ 	/**
+@@ -728,6 +729,10 @@
+ 		return (List) visualStyleEdgeTypesMap.get(vizStyle);
+ 	}
+ 
++	public static boolean EdgeTypeIsDirected(String edgeType){
++		return edgeTypeIsDirectedMap.get(edgeType);
++	}
++	
+ 	/**
+ 	 * set the editor for a GraphView
+ 	 *
+Index: vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeTargetArrowShapeProp.java
+===================================================================
+--- vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeTargetArrowShapeProp.java	(revision 14559)
++++ vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeTargetArrowShapeProp.java	(revision 14560)
+@@ -94,6 +94,10 @@
+ 		if ((o == null) || (ev == null))
+ 			return;
+ 
++		if (!ev.getEdge().isDirected()){
++			return; // force undirected edges to have NO_END  
++		}
++
+ 		final int newTargetEnd = ((ArrowShape) o).getGinyArrow();
+ 
+ 		if (newTargetEnd != ev.getTargetEdgeEnd()) {
+Index: vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeSourceArrowShapeProp.java
+===================================================================
+--- vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeSourceArrowShapeProp.java	(revision 14559)
++++ vizmap/src/main/java/org/cytoscape/vizmap/properties/EdgeSourceArrowShapeProp.java	(revision 14560)
+@@ -91,6 +91,11 @@
+ 	public void applyToEdgeView(EdgeView ev, Object o) {
+ 		if ((o == null) || (ev == null))
+ 			return;
++		
++		if (!ev.getEdge().isDirected()){
++			return; // force undirected edges to have NO_END  
++		}
++
+ 		final int newSourceEnd;
+ 		
+ 		newSourceEnd = ((ArrowShape) o).getGinyArrow();

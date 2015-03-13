@@ -1,0 +1,15 @@
+Index: editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java
+===================================================================
+--- editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14310)
++++ editor/src/main/java/cytoscape/editor/editors/BasicCytoscapeEditor.java	(revision 14311)
+@@ -797,6 +797,10 @@
+ 					                                                null, possibilities,
+ 					                                                possibilities[0]);
+ 
++					if (s == null){
++						// dialog was canceled, don't create any edges
++						return;
++					}
+ 					// If a string was returned, say so.
+ 					if ((s != null) && (s.length() > 0)) {
+ 						edgeTypeValue = s;
